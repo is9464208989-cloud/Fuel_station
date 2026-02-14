@@ -9,7 +9,6 @@ if 'nozzles' not in st.session_state:
 if 'udhaar_data' not in st.session_state:
     st.session_state.udhaar_data = pd.DataFrame(columns=["Date", "Customer", "Amount", "Status"])
 
-# Updated State to accumulate/add up values
 if 'daily_cash' not in st.session_state:
     st.session_state.daily_cash = 0.0
 if 'daily_online' not in st.session_state:
@@ -32,9 +31,8 @@ if st.session_state.page == "Home":
     st.title("⛽ petrol pump")
     st.subheader(f"📅 {today.strftime('%d %B, %Y')}")
     
-    # Dashboard Metric: Shows the running total
     total_today = st.session_state.daily_cash + st.session_state.daily_online
-    st.metric(label="Total Collected Today (Running Total)", value=f"₹{total_today:,.2f}")
+    st.metric(label="Total Collected Today", value=f"₹{total_today:,.2f}")
 
     pending_df = st.session_state.udhaar_data[st.session_state.udhaar_data["Status"] == "Pending 🔴"]
     if not pending_df.empty:
@@ -43,56 +41,39 @@ if st.session_state.page == "Home":
         st.success("✅ All Udhaar cleared!")
 
     if st.button("📊\n\nSTOCKS", use_container_width=True):
-        st.session_state.page = "Stocks"
-        st.rerun()
+        st.session_state.page = "Stocks"; st.rerun()
     if st.button("📒\n\nUDHAAR", use_container_width=True):
-        st.session_state.page = "Udhaar"
-        st.rerun()
+        st.session_state.page = "Udhaar"; st.rerun()
     if st.button("💰\n\nCASH COLLECTED", use_container_width=True):
-        st.session_state.page = "Cash_Collected"
-        st.rerun()
+        st.session_state.page = "Cash_Collected"; st.rerun()
     if st.button("⚙️\n\nSETTINGS", use_container_width=True):
-        st.session_state.page = "Settings"
-        st.rerun()
+        st.session_state.page = "Settings"; st.rerun()
 
-# --- CASH COLLECTED PAGE (FIXED TO ADD UP) ---
+# --- CASH COLLECTED PAGE ---
 elif st.session_state.page == "Cash_Collected":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
-        st.session_state.page = "Home"
-        st.rerun()
-    
+        st.session_state.page = "Home"; st.rerun()
     st.header("💰 Add to Collection")
     st.info(f"Current Total: ₹{st.session_state.daily_cash + st.session_state.daily_online:,.2f}")
-    
     with st.form("cash_form", clear_on_submit=True):
-        cash_in = st.number_input("Add Cash (₹)", value=None, placeholder="Enter new cash...")
-        online_in = st.number_input("Add Online/UPI (₹)", value=None, placeholder="Enter new online...")
-        
+        cash_in = st.number_input("Add Cash (₹)", value=None)
+        online_in = st.number_input("Add Online/UPI (₹)", value=None)
         if st.form_submit_button("ADD TO TOTAL", use_container_width=True):
-            # Logic: We add the new value to the existing value
             if cash_in: st.session_state.daily_cash += cash_in
             if online_in: st.session_state.daily_online += online_in
-            st.success("Added! Current total updated.")
-            st.session_state.page = "Home"
-            st.rerun()
-            
+            st.session_state.page = "Home"; st.rerun()
     st.divider()
-    if st.button("🗑️ RESET DAILY TOTAL TO ZERO", type="primary", use_container_width=True):
-        st.session_state.daily_cash = 0.0
-        st.session_state.daily_online = 0.0
-        st.warning("Daily totals have been reset.")
-        st.rerun()
+    if st.button("🗑️ RESET DAILY TOTAL", type="primary", use_container_width=True):
+        st.session_state.daily_cash = 0.0; st.session_state.daily_online = 0.0; st.rerun()
 
-# --- STOCKS PAGE ---
+# --- STOCKS PAGE (WITH PENDING UDHAAR INDICATION) ---
 elif st.session_state.page == "Stocks":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
-        st.session_state.page = "Home"
-        st.rerun()
-    
+        st.session_state.page = "Home"; st.rerun()
     st.header("🛢️ Nozzle Readings")
     c1, c2 = st.columns(2)
-    p_rate = c1.number_input("Petrol Rate", value=None, placeholder="₹", step=0.1)
-    d_rate = c2.number_input("Diesel Rate", value=None, placeholder="₹", step=0.1)
+    p_rate = c1.number_input("Petrol Rate", value=None, placeholder="₹")
+    d_rate = c2.number_input("Diesel Rate", value=None, placeholder="₹")
 
     readings = []
     for name, fuel_type in st.session_state.nozzles.items():
@@ -112,37 +93,42 @@ elif st.session_state.page == "Stocks":
     if st.button("GENERATE FINAL REPORT", type="primary", use_container_width=True):
         st.header("📊 Final Summary")
         req_amt = sum(item['Amount'] for item in readings)
-        
         net_collected = (st.session_state.daily_cash + st.session_state.daily_online) - (prev_cash if prev_cash else 0) + (rem_cash if rem_cash else 0)
         diff = net_collected - req_amt
         
         st.metric("Machine Required", f"₹{req_amt:,.2f}")
-        st.metric("Net Collected (Calculated)", f"₹{net_collected:,.2f}", delta=f"{diff:,.2f}")
+        st.metric("Net Collected", f"₹{net_collected:,.2f}", delta=f"{diff:,.2f}")
 
         if diff < 0: st.error(f"❌ SHORTAGE: ₹{abs(diff):,.2f}")
         elif diff > 0: st.success(f"✅ EXCESS: ₹{diff:,.2f}")
         else: st.info("🎯 MATCHED")
+        
         st.table(pd.DataFrame(readings))
 
-# --- UDHAAR LOGIC (Same as before) ---
+        # NEW: Visual Indication of Pending Udhaars (Not added to math)
+        st.divider()
+        st.subheader("📌 Pending Udhaar Reference")
+        pending_list = st.session_state.udhaar_data[st.session_state.udhaar_data["Status"] == "Pending 🔴"]
+        if not pending_list.empty:
+            st.dataframe(pending_list[["Date", "Customer", "Amount"]], use_container_width=True, hide_index=True)
+            st.info(f"Note: These ₹{pending_list['Amount'].sum():,.2f} are NOT included in the cash summary above.")
+        else:
+            st.write("No pending Udhaar.")
+
+# --- UDHAAR LOGIC ---
 elif st.session_state.page == "Udhaar":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
-        st.session_state.page = "Home"
-        st.rerun()
+        st.session_state.page = "Home"; st.rerun()
     pending_df = st.session_state.udhaar_data[st.session_state.udhaar_data["Status"] == "Pending 🔴"]
-    total_left = pending_df["Amount"].sum()
-    st.metric(label="Total Udhaar Left", value=f"₹{total_left:,.2f}")
+    st.metric(label="Total Udhaar Left", value=f"₹{pending_df['Amount'].sum():,.2f}")
     if st.button("➕ ADD NEW UDHAAR", use_container_width=True):
-        st.session_state.page = "Add_Udhaar"
-        st.rerun()
+        st.session_state.page = "Add_Udhaar"; st.rerun()
     if st.button("✅ CLEAR PENDING UDHAAR", use_container_width=True):
-        st.session_state.page = "Clear_List"
-        st.rerun()
+        st.session_state.page = "Clear_List"; st.rerun()
 
 elif st.session_state.page == "Add_Udhaar":
     if st.button("⬅ BACK", use_container_width=True):
-        st.session_state.page = "Udhaar"
-        st.rerun()
+        st.session_state.page = "Udhaar"; st.rerun()
     with st.form("new_u"):
         u_cust = st.text_input("Customer Name")
         u_amt = st.number_input("Amount", value=None)
@@ -151,36 +137,30 @@ elif st.session_state.page == "Add_Udhaar":
             if u_cust.strip() and u_amt and u_amt > 0:
                 new_row = pd.DataFrame([{"Date": str(u_date), "Customer": u_cust, "Amount": u_amt, "Status": "Pending 🔴"}])
                 st.session_state.udhaar_data = pd.concat([st.session_state.udhaar_data, new_row], ignore_index=True)
-                st.session_state.page = "Home"
-                st.rerun()
+                st.session_state.page = "Home"; st.rerun()
 
 elif st.session_state.page == "Clear_List":
     if st.button("⬅ BACK", use_container_width=True):
-        st.session_state.page = "Udhaar"
-        st.rerun()
+        st.session_state.page = "Udhaar"; st.rerun()
     pending_df = st.session_state.udhaar_data[st.session_state.udhaar_data["Status"] == "Pending 🔴"]
     for index, row in pending_df.iterrows():
         if st.button(f"{row['Customer']} - ₹{row['Amount']}", key=f"l_{index}", use_container_width=True):
-            st.session_state.confirm_id = index
-            st.session_state.page = "Confirm_Clear"
-            st.rerun()
+            st.session_state.confirm_id = index; st.session_state.page = "Confirm_Clear"; st.rerun()
 
 elif st.session_state.page == "Confirm_Clear":
     idx = st.session_state.confirm_id
     row = st.session_state.udhaar_data.loc[idx]
-    st.warning("Confirm payment?")
+    st.warning(f"Clear Udhaar for {row['Customer']}?")
     if st.button("YES, PAID 🟢", use_container_width=True):
         st.session_state.udhaar_data.at[idx, "Status"] = "Cleared ✅"
-        st.session_state.page = "Home"
-        st.rerun()
+        st.session_state.page = "Home"; st.rerun()
     if st.button("CANCEL", use_container_width=True):
-        st.session_state.page = "Clear_List"
-        st.rerun()
+        st.session_state.page = "Clear_List"; st.rerun()
 
+# --- SETTINGS ---
 elif st.session_state.page == "Settings":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
-        st.session_state.page = "Home"
-        st.rerun()
+        st.session_state.page = "Home"; st.rerun()
     with st.container(border=True):
         st.subheader("Add Nozzle")
         new_name = st.text_input("Name")
@@ -193,4 +173,3 @@ elif st.session_state.page == "Settings":
             to_del = st.selectbox("Select", list(st.session_state.nozzles.keys()))
             if st.button("DELETE", type="primary", use_container_width=True):
                 del st.session_state.nozzles[to_del]; st.rerun()
-
