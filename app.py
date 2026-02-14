@@ -1,22 +1,28 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
+from streamlit_gsheets import GSheetsConnection
 
-# --- 1. CONFIGURATION & STATE ---
+# --- 1. CONNECTION & STATE ---
+# This links to your Google Sheet defined in "Secrets"
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 if 'nozzles' not in st.session_state:
     st.session_state.nozzles = {"Petrol 1": "Petrol", "Diesel 1": "Diesel"}
 
+# Load Udhaar Data from Google Sheets on first run
 if 'udhaar_data' not in st.session_state:
-    st.session_state.udhaar_data = pd.DataFrame(columns=["Date", "Customer", "Amount", "Status"])
+    try:
+        st.session_state.udhaar_data = conn.read(worksheet="Sheet1", ttl="0")
+    except:
+        st.session_state.udhaar_data = pd.DataFrame(columns=["Date", "Customer", "Amount", "Status"])
 
 if 'daily_cash' not in st.session_state:
     st.session_state.daily_cash = 0.0
 if 'daily_online' not in st.session_state:
     st.session_state.daily_online = 0.0
-
 if 'page' not in st.session_state:
     st.session_state.page = "Home"
-
 if 'confirm_id' not in st.session_state:
     st.session_state.confirm_id = None
 
@@ -54,7 +60,6 @@ elif st.session_state.page == "Cash_Collected":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
         st.session_state.page = "Home"; st.rerun()
     st.header("💰 Add to Collection")
-    st.info(f"Current Total: ₹{st.session_state.daily_cash + st.session_state.daily_online:,.2f}")
     with st.form("cash_form", clear_on_submit=True):
         cash_in = st.number_input("Add Cash (₹)", value=None)
         online_in = st.number_input("Add Online/UPI (₹)", value=None)
@@ -66,7 +71,7 @@ elif st.session_state.page == "Cash_Collected":
     if st.button("🗑️ RESET DAILY TOTAL", type="primary", use_container_width=True):
         st.session_state.daily_cash = 0.0; st.session_state.daily_online = 0.0; st.rerun()
 
-# --- STOCKS PAGE (WITH PENDING UDHAAR INDICATION) ---
+# --- STOCKS PAGE ---
 elif st.session_state.page == "Stocks":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
         st.session_state.page = "Home"; st.rerun()
@@ -98,24 +103,16 @@ elif st.session_state.page == "Stocks":
         
         st.metric("Machine Required", f"₹{req_amt:,.2f}")
         st.metric("Net Collected", f"₹{net_collected:,.2f}", delta=f"{diff:,.2f}")
-
         if diff < 0: st.error(f"❌ SHORTAGE: ₹{abs(diff):,.2f}")
         elif diff > 0: st.success(f"✅ EXCESS: ₹{diff:,.2f}")
-        else: st.info("🎯 MATCHED")
         
         st.table(pd.DataFrame(readings))
-
-        # NEW: Visual Indication of Pending Udhaars (Not added to math)
         st.divider()
         st.subheader("📌 Pending Udhaar Reference")
         pending_list = st.session_state.udhaar_data[st.session_state.udhaar_data["Status"] == "Pending 🔴"]
-        if not pending_list.empty:
-            st.dataframe(pending_list[["Date", "Customer", "Amount"]], use_container_width=True, hide_index=True)
-            st.info(f"Note: These ₹{pending_list['Amount'].sum():,.2f} are NOT included in the cash summary above.")
-        else:
-            st.write("No pending Udhaar.")
+        st.dataframe(pending_list[["Date", "Customer", "Amount"]], use_container_width=True, hide_index=True)
 
-# --- UDHAAR LOGIC ---
+# --- UDHAAR LOGIC (CONNECTED TO GOOGLE SHEETS) ---
 elif st.session_state.page == "Udhaar":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
         st.session_state.page = "Home"; st.rerun()
@@ -137,6 +134,9 @@ elif st.session_state.page == "Add_Udhaar":
             if u_cust.strip() and u_amt and u_amt > 0:
                 new_row = pd.DataFrame([{"Date": str(u_date), "Customer": u_cust, "Amount": u_amt, "Status": "Pending 🔴"}])
                 st.session_state.udhaar_data = pd.concat([st.session_state.udhaar_data, new_row], ignore_index=True)
+                # PUSH TO GOOGLE SHEETS
+                conn.update(worksheet="Sheet1", data=st.session_state.udhaar_data)
+                st.success("Saved to Cloud! ✅")
                 st.session_state.page = "Home"; st.rerun()
 
 elif st.session_state.page == "Clear_List":
@@ -153,6 +153,9 @@ elif st.session_state.page == "Confirm_Clear":
     st.warning(f"Clear Udhaar for {row['Customer']}?")
     if st.button("YES, PAID 🟢", use_container_width=True):
         st.session_state.udhaar_data.at[idx, "Status"] = "Cleared ✅"
+        # UPDATE GOOGLE SHEETS
+        conn.update(worksheet="Sheet1", data=st.session_state.udhaar_data)
+        st.balloons()
         st.session_state.page = "Home"; st.rerun()
     if st.button("CANCEL", use_container_width=True):
         st.session_state.page = "Clear_List"; st.rerun()
