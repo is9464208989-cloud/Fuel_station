@@ -67,16 +67,19 @@ if st.session_state.page == "Stocks":
 
 # --- 5. UDHAAR LEDGER (INTERACTIVE) ---
 elif st.session_state.page == "Udhaar":
-    tab1, tab2 = st.tabs(["➕ Add New Udhaar", "✅ Clear Pending"])
+    tab1, tab2 = st.tabs(["➕ Add New", "✅ Clear Pending"])
     
     with tab1:
-        with st.form("new_udhaar"):
+        with st.form("new_udhaar", clear_on_submit=True):
             u_cust = st.text_input("Customer/Vehicle Name")
             u_amt = st.number_input("Amount (₹)", min_value=0.0)
             u_date = st.date_input("Date", today)
-            if st.form_submit_button("SAVE UDHAAR", use_container_width=True):
+            # Button renamed to "SAVE" as requested
+            if st.form_submit_button("SAVE", use_container_width=True):
                 new_row = pd.DataFrame([{"Date": str(u_date), "Customer": u_cust, "Amount": u_amt, "Status": "Pending 🔴"}])
                 st.session_state.udhaar_data = pd.concat([st.session_state.udhaar_data, new_row], ignore_index=True)
+                # Notification of success before the page resets to top
+                st.toast(f"✅ Saved Udhaar for {u_cust}!", icon='💰')
                 st.rerun()
 
     with tab2:
@@ -92,19 +95,33 @@ elif st.session_state.page == "Udhaar":
                         st.balloons()
                         st.rerun()
 
-# --- 6. SETTINGS ---
+# --- 6. SETTINGS (ADD & DELETE NOZZLES) ---
 elif st.session_state.page == "Settings":
     st.header("⚙️ Configuration")
-    with st.expander("Add New Nozzle"):
-        new_name = st.text_input("Nozzle Name")
-        new_type = st.selectbox("Type", ["Petrol", "Diesel"])
-        if st.button("Save Nozzle", use_container_width=True):
-            st.session_state.nozzles[new_name] = new_type
-            st.rerun()
+    
+    # ADD SECTION
+    st.subheader("Add Nozzle")
+    with st.container(border=True):
+        new_name = st.text_input("Nozzle Name (e.g., Diesel 3)")
+        new_type = st.selectbox("Fuel Type", ["Petrol", "Diesel"])
+        if st.button("Save New Nozzle", use_container_width=True):
+            if new_name:
+                st.session_state.nozzles[new_name] = new_type
+                st.toast(f"Added {new_name}!")
+                st.rerun()
+            else:
+                st.error("Please enter a name.")
 
-    with st.expander("Delete Nozzle"):
+    st.divider()
+    
+    # DELETE SECTION
+    st.subheader("Delete Nozzle")
+    with st.container(border=True):
         if st.session_state.nozzles:
             to_del = st.selectbox("Select to Remove", list(st.session_state.nozzles.keys()))
-            if st.button("Delete Permanently", type="primary", use_container_width=True):
+            if st.button("DELETE PERMANENTLY", type="primary", use_container_width=True):
                 del st.session_state.nozzles[to_del]
+                st.toast(f"Removed {to_del}")
                 st.rerun()
+        else:
+            st.info("No nozzles to delete.")
