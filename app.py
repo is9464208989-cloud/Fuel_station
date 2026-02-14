@@ -1,16 +1,15 @@
-import streamlit as st
+ import streamlit as st
 import pandas as pd
 from datetime import date
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. CONNECTION & STATE ---
-# This links to your Google Sheet defined in "Secrets"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 if 'nozzles' not in st.session_state:
     st.session_state.nozzles = {"Petrol 1": "Petrol", "Diesel 1": "Diesel"}
 
-# Load Udhaar Data from Google Sheets on first run
+# Load Udhaar Data from Google Sheets (Worksheet: Sheet1)
 if 'udhaar_data' not in st.session_state:
     try:
         st.session_state.udhaar_data = conn.read(worksheet="Sheet1", ttl="0")
@@ -23,8 +22,6 @@ if 'daily_online' not in st.session_state:
     st.session_state.daily_online = 0.0
 if 'page' not in st.session_state:
     st.session_state.page = "Home"
-if 'confirm_id' not in st.session_state:
-    st.session_state.confirm_id = None
 
 # --- 2. THEME & HEADER ---
 st.set_page_config(page_title="petrol pump", layout="centered")
@@ -52,6 +49,8 @@ if st.session_state.page == "Home":
         st.session_state.page = "Udhaar"; st.rerun()
     if st.button("💰\n\nCASH COLLECTED", use_container_width=True):
         st.session_state.page = "Cash_Collected"; st.rerun()
+    if st.button("📜\n\nSTOCK HISTORY", use_container_width=True):
+        st.session_state.page = "Stock_History"; st.rerun()
     if st.button("⚙️\n\nSETTINGS", use_container_width=True):
         st.session_state.page = "Settings"; st.rerun()
 
@@ -60,6 +59,7 @@ elif st.session_state.page == "Cash_Collected":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
         st.session_state.page = "Home"; st.rerun()
     st.header("💰 Add to Collection")
+    st.info(f"Current Total: ₹{st.session_state.daily_cash + st.session_state.daily_online:,.2f}")
     with st.form("cash_form", clear_on_submit=True):
         cash_in = st.number_input("Add Cash (₹)", value=None)
         online_in = st.number_input("Add Online/UPI (₹)", value=None)
@@ -71,7 +71,7 @@ elif st.session_state.page == "Cash_Collected":
     if st.button("🗑️ RESET DAILY TOTAL", type="primary", use_container_width=True):
         st.session_state.daily_cash = 0.0; st.session_state.daily_online = 0.0; st.rerun()
 
-# --- STOCKS PAGE ---
+# --- STOCKS PAGE (WITH AUTO-SAVE TO SHEET) ---
 elif st.session_state.page == "Stocks":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
         st.session_state.page = "Home"; st.rerun()
@@ -95,7 +95,7 @@ elif st.session_state.page == "Stocks":
     prev_cash = st.number_input("Cash in hand of Previous Day (₹)", value=None)
     rem_cash = st.number_input("Remaining Cash in hand (₹)", value=None)
 
-    if st.button("GENERATE FINAL REPORT", type="primary", use_container_width=True):
+    if st.button("GENERATE & SAVE REPORT", type="primary", use_container_width=True):
         st.header("📊 Final Summary")
         req_amt = sum(item['Amount'] for item in readings)
         net_collected = (st.session_state.daily_cash + st.session_state.daily_online) - (prev_cash if prev_cash else 0) + (rem_cash if rem_cash else 0)
@@ -103,14 +103,35 @@ elif st.session_state.page == "Stocks":
         
         st.metric("Machine Required", f"₹{req_amt:,.2f}")
         st.metric("Net Collected", f"₹{net_collected:,.2f}", delta=f"{diff:,.2f}")
-        if diff < 0: st.error(f"❌ SHORTAGE: ₹{abs(diff):,.2f}")
-        elif diff > 0: st.success(f"✅ EXCESS: ₹{diff:,.2f}")
+
+        status = "MATCHED"
+        if diff < 0: 
+            st.error(f"❌ SHORTAGE: ₹{abs(diff):,.2f}"); status = "SHORTAGE"
+        elif diff > 0: 
+            st.success(f"✅ EXCESS: ₹{diff:,.2f}"); status = "EXCESS"
         
+        # --- SAVE TO STOCKHISTORY WORKSHEET ---
+        try:
+            history_df = conn.read(worksheet="StockHistory", ttl="0")
+            new_entry = pd.DataFrame([{"Date": str(today), "Required_Amt": req_amt, "Collected_Amt": net_collected, "Difference": diff, "Status": status}])
+            updated_history = pd.concat([history_df, new_entry], ignore_index=True)
+            conn.update(worksheet="StockHistory", data=updated_history)
+            st.toast("Daily Report Saved to Cloud! ☁️")
+        except:
+            st.error("Could not save to 'StockHistory' worksheet. Make sure it exists!")
+
         st.table(pd.DataFrame(readings))
-        st.divider()
-        st.subheader("📌 Pending Udhaar Reference")
-        pending_list = st.session_state.udhaar_data[st.session_state.udhaar_data["Status"] == "Pending 🔴"]
-        st.dataframe(pending_list[["Date", "Customer", "Amount"]], use_container_width=True, hide_index=True)
+
+# --- STOCK HISTORY VIEW ---
+elif st.session_state.page == "Stock_History":
+    if st.button("⬅ BACK TO MENU", use_container_width=True):
+        st.session_state.page = "Home"; st.rerun()
+    st.header("📜 Past Daily Reports")
+    try:
+        history_df = conn.read(worksheet="StockHistory", ttl="0")
+        st.dataframe(history_df, use_container_width=True, hide_index=True)
+    except:
+        st.info("No history found. Save a report first!")
 
 # --- UDHAAR LOGIC (CONNECTED TO GOOGLE SHEETS) ---
 elif st.session_state.page == "Udhaar":
@@ -134,9 +155,7 @@ elif st.session_state.page == "Add_Udhaar":
             if u_cust.strip() and u_amt and u_amt > 0:
                 new_row = pd.DataFrame([{"Date": str(u_date), "Customer": u_cust, "Amount": u_amt, "Status": "Pending 🔴"}])
                 st.session_state.udhaar_data = pd.concat([st.session_state.udhaar_data, new_row], ignore_index=True)
-                # PUSH TO GOOGLE SHEETS
                 conn.update(worksheet="Sheet1", data=st.session_state.udhaar_data)
-                st.success("Saved to Cloud! ✅")
                 st.session_state.page = "Home"; st.rerun()
 
 elif st.session_state.page == "Clear_List":
@@ -153,9 +172,7 @@ elif st.session_state.page == "Confirm_Clear":
     st.warning(f"Clear Udhaar for {row['Customer']}?")
     if st.button("YES, PAID 🟢", use_container_width=True):
         st.session_state.udhaar_data.at[idx, "Status"] = "Cleared ✅"
-        # UPDATE GOOGLE SHEETS
         conn.update(worksheet="Sheet1", data=st.session_state.udhaar_data)
-        st.balloons()
         st.session_state.page = "Home"; st.rerun()
     if st.button("CANCEL", use_container_width=True):
         st.session_state.page = "Clear_List"; st.rerun()
