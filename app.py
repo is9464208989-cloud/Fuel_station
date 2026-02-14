@@ -9,7 +9,7 @@ if 'nozzles' not in st.session_state:
 if 'udhaar_data' not in st.session_state:
     st.session_state.udhaar_data = pd.DataFrame(columns=["Date", "Customer", "Amount", "Status"])
 
-# Updated State for Advanced Accounting
+# Updated State to accumulate/add up values
 if 'daily_cash' not in st.session_state:
     st.session_state.daily_cash = 0.0
 if 'daily_online' not in st.session_state:
@@ -32,9 +32,9 @@ if st.session_state.page == "Home":
     st.title("⛽ petrol pump")
     st.subheader(f"📅 {today.strftime('%d %B, %Y')}")
     
-    # NEW: Total Cash Collected shown on Home Interface
+    # Dashboard Metric: Shows the running total
     total_today = st.session_state.daily_cash + st.session_state.daily_online
-    st.metric(label="Total Collected Today", value=f"₹{total_today:,.2f}")
+    st.metric(label="Total Collected Today (Running Total)", value=f"₹{total_today:,.2f}")
 
     pending_df = st.session_state.udhaar_data[st.session_state.udhaar_data["Status"] == "Pending 🔴"]
     if not pending_df.empty:
@@ -55,24 +55,35 @@ if st.session_state.page == "Home":
         st.session_state.page = "Settings"
         st.rerun()
 
-# --- CASH COLLECTED PAGE ---
+# --- CASH COLLECTED PAGE (FIXED TO ADD UP) ---
 elif st.session_state.page == "Cash_Collected":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
         st.session_state.page = "Home"
         st.rerun()
     
-    st.header("💰 Today's Collection")
-    with st.form("cash_form"):
-        cash = st.number_input("Hard Cash Collected (₹)", value=None, placeholder="Today's cash...")
-        online = st.number_input("Online/UPI Received (₹)", value=None, placeholder="Today's online...")
-        if st.form_submit_button("SAVE COLLECTIONS", use_container_width=True):
-            st.session_state.daily_cash = cash if cash else 0.0
-            st.session_state.daily_online = online if online else 0.0
-            st.success("Saved! Returning Home...")
+    st.header("💰 Add to Collection")
+    st.info(f"Current Total: ₹{st.session_state.daily_cash + st.session_state.daily_online:,.2f}")
+    
+    with st.form("cash_form", clear_on_submit=True):
+        cash_in = st.number_input("Add Cash (₹)", value=None, placeholder="Enter new cash...")
+        online_in = st.number_input("Add Online/UPI (₹)", value=None, placeholder="Enter new online...")
+        
+        if st.form_submit_button("ADD TO TOTAL", use_container_width=True):
+            # Logic: We add the new value to the existing value
+            if cash_in: st.session_state.daily_cash += cash_in
+            if online_in: st.session_state.daily_online += online_in
+            st.success("Added! Current total updated.")
             st.session_state.page = "Home"
             st.rerun()
+            
+    st.divider()
+    if st.button("🗑️ RESET DAILY TOTAL TO ZERO", type="primary", use_container_width=True):
+        st.session_state.daily_cash = 0.0
+        st.session_state.daily_online = 0.0
+        st.warning("Daily totals have been reset.")
+        st.rerun()
 
-# --- STOCKS PAGE (WITH ADVANCED SUMMARY) ---
+# --- STOCKS PAGE ---
 elif st.session_state.page == "Stocks":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
         st.session_state.page = "Home"
@@ -95,40 +106,25 @@ elif st.session_state.page == "Stocks":
 
     st.divider()
     st.subheader("📝 Accounting Adjustments")
-    prev_cash = st.number_input("Cash in hand of Previous Day (₹)", value=None, placeholder="Minus from total")
-    rem_cash = st.number_input("Remaining Cash in hand (₹)", value=None, placeholder="Add to total")
+    prev_cash = st.number_input("Cash in hand of Previous Day (₹)", value=None)
+    rem_cash = st.number_input("Remaining Cash in hand (₹)", value=None)
 
     if st.button("GENERATE FINAL REPORT", type="primary", use_container_width=True):
         st.header("📊 Final Summary")
-        
-        # Calculations
         req_amt = sum(item['Amount'] for item in readings)
         
-        # Net Collected Logic as requested
-        today_cash = st.session_state.daily_cash
-        today_online = st.session_state.daily_online
-        p_cash = prev_cash if prev_cash else 0.0
-        r_cash = rem_cash if rem_cash else 0.0
-        
-        net_collected = (today_cash + today_online) - p_cash + r_cash
+        net_collected = (st.session_state.daily_cash + st.session_state.daily_online) - (prev_cash if prev_cash else 0) + (rem_cash if rem_cash else 0)
         diff = net_collected - req_amt
         
-        # Display Results
-        st.write("---")
-        c1, c2 = st.columns(2)
-        c1.metric("Required (Machine)", f"₹{req_amt:,.2f}")
-        c2.metric("Net Collected (Actual)", f"₹{net_collected:,.2f}", delta=f"{diff:,.2f}")
+        st.metric("Machine Required", f"₹{req_amt:,.2f}")
+        st.metric("Net Collected (Calculated)", f"₹{net_collected:,.2f}", delta=f"{diff:,.2f}")
 
-        if diff < 0:
-            st.error(f"❌ SHORTAGE: ₹{abs(diff):,.2f}")
-        elif diff > 0:
-            st.success(f"✅ EXCESS: ₹{diff:,.2f}")
-        else:
-            st.info("🎯 MATCHED")
-
+        if diff < 0: st.error(f"❌ SHORTAGE: ₹{abs(diff):,.2f}")
+        elif diff > 0: st.success(f"✅ EXCESS: ₹{diff:,.2f}")
+        else: st.info("🎯 MATCHED")
         st.table(pd.DataFrame(readings))
 
-# --- UDHAAR PAGES ---
+# --- UDHAAR LOGIC (Same as before) ---
 elif st.session_state.page == "Udhaar":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
         st.session_state.page = "Home"
@@ -181,7 +177,6 @@ elif st.session_state.page == "Confirm_Clear":
         st.session_state.page = "Clear_List"
         st.rerun()
 
-# --- SETTINGS ---
 elif st.session_state.page == "Settings":
     if st.button("⬅ BACK TO MENU", use_container_width=True):
         st.session_state.page = "Home"
@@ -198,4 +193,4 @@ elif st.session_state.page == "Settings":
             to_del = st.selectbox("Select", list(st.session_state.nozzles.keys()))
             if st.button("DELETE", type="primary", use_container_width=True):
                 del st.session_state.nozzles[to_del]; st.rerun()
-        
+
